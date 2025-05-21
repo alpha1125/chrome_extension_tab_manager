@@ -1,3 +1,7 @@
+2025-05-21 v0.1.3
+* Fixed bug, where IP addresses, was grouped together as "0", changed to "IP Address".
+* Fixed race condition where it'd stop grouping tabs.
+
 2024-03-27 v0.1.2 - fixed first letter upper case
 
 2024-03-03 v0.1.1 - initial release

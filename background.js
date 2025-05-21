@@ -42,23 +42,49 @@ function mergeAllWindows() {
  */
 function removeDuplicateTabs() {
     return new Promise((resolve, reject) => {
-        chrome.windows.getCurrent({populate: true}, function (window) {
+        chrome.windows.getAll({populate: true}, function (windows) {
             if (chrome.runtime.lastError) {
                 return reject(chrome.runtime.lastError);
             }
-            let uniqueUrls = new Set();
-            let duplicateTabs = [];
-            window.tabs.forEach(tab => {
-                if (uniqueUrls.has(tab.url) || (tab.url === 'chrome://newtab/' && window.tabs.length > 1)) {
-                    duplicateTabs.push(tab.id);
-                } else {
-                    uniqueUrls.add(tab.url);
-                }
+            // Count total tabs and new tabs
+            let allTabs = [];
+            let newTabTabs = [];
+            windows.forEach(window => {
+                window.tabs.forEach(tab => {
+                    allTabs.push(tab);
+                    if (tab.url === 'chrome://newtab/') {
+                        newTabTabs.push(tab);
+                    }
+                });
             });
-            if (duplicateTabs.length > 0) {
-                chrome.tabs.remove(duplicateTabs);
+            // If all tabs are new tabs and only one window, keep one tab open
+            if (allTabs.length === newTabTabs.length && windows.length === 1) {
+                // Remove all but one new tab
+                let tabsToRemove = newTabTabs.slice(1).map(tab => tab.id);
+                if (tabsToRemove.length > 0) {
+                    chrome.tabs.remove(tabsToRemove);
+                }
+                return resolve();
             }
-            resolve();
+            // Otherwise, remove duplicate tabs in the current window as before
+            chrome.windows.getCurrent({populate: true}, function (window) {
+                if (chrome.runtime.lastError) {
+                    return reject(chrome.runtime.lastError);
+                }
+                let uniqueUrls = new Set();
+                let duplicateTabs = [];
+                window.tabs.forEach(tab => {
+                    if (uniqueUrls.has(tab.url) || (tab.url === 'chrome://newtab/' && window.tabs.length > 1)) {
+                        duplicateTabs.push(tab.id);
+                    } else {
+                        uniqueUrls.add(tab.url);
+                    }
+                });
+                if (duplicateTabs.length > 0) {
+                    chrome.tabs.remove(duplicateTabs);
+                }
+                resolve();
+            });
         });
     });
 }
@@ -69,7 +95,11 @@ function removeDuplicateTabs() {
  * @returns {string}
  */
 function capitalizeFirstLetter(string) {
-    return string.charAt(0).toUpperCase() + string.slice(1);
+    try {
+        return string.charAt(0).toUpperCase() + string.slice(1);
+    } catch {
+        return string;
+    }
 }
 
 /**
@@ -79,17 +109,22 @@ function capitalizeFirstLetter(string) {
  * @returns {string}
  */
 function getDomainName(url) {
+    if (typeof url !== 'string') {
+        throw new Error('Invalid URL');
+    }
     if (url.startsWith('chrome://')) {
         return 'Chrome';
     }
-    const secondLevelDomains = ['co', 'com', 'gov', 'net', 'edu', 'org'];
     let hostname = new URL(url).hostname;
+    // Check if hostname is an IP address
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+        return hostname; // or return 'IP Address'
+    }
+    const secondLevelDomains = ['co', 'com', 'gov', 'net', 'edu', 'org'];
     let parts = hostname.split('.');
-    // Return the primary domain.
     return capitalizeFirstLetter(
         secondLevelDomains.includes(parts[parts.length - 2]) ? parts[parts.length - 3] : parts[parts.length - 2]
     );
-
 }
 
 /**
@@ -158,12 +193,12 @@ async function groupTabsByDomain() {
 /**
  * This following line  is called when the extension icon is clicked.
  */
-chrome.action.onClicked.addListener(async function (tab) {
+chrome.action.onClicked.addListener(async function () {
     try {
         await mergeAllWindows();
         await removeDuplicateTabs();
         await groupTabsByDomain();
     } catch (error) {
-        console.error('An error occurred:', error);
+        console.error(`An error occurred in groupTabsByDomain: ${JSON.stringify(error, null, 2)}`);
     }
 });
